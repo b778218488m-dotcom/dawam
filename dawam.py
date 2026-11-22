@@ -4,7 +4,7 @@ import sys, os, json, re, uuid, hashlib
 from datetime import datetime
 from pathlib import Path
 from PySide6.QtCore import Qt, QTimer, QUrl, QMarginsF
-from PySide6.QtGui import (QColor, QPainter, QFont, QTextDocument, QPageSize, QPageLayout,
+from PySide6.QtGui import (QPalette, QColor, QPainter, QFont, QTextDocument, QPageSize, QPageLayout,
                            QPdfWriter, QDesktopServices, QTextOption)
 from PySide6.QtWidgets import (QApplication, QMainWindow, QWidget, QVBoxLayout, QHBoxLayout, QGridLayout,
     QLabel, QPushButton, QFrame, QStackedWidget, QScrollArea, QComboBox, QSpinBox, QTableWidget,
@@ -113,28 +113,35 @@ def safe(n): return re.sub(r'[\\/:*?"<>|]', '_', n)
 QSS = """
 * {font-family:'Segoe UI',Tahoma; font-size:10pt; color:#1d2540}
 QMainWindow,#root{background:#f3f4f8}
-#hdr{background:#232c4e} #hdr QLabel{color:white}
+#hdr{background:#232c4e} #hdr QLabel{color:white;background:transparent}
 #bar{background:qlineargradient(x1:0,y1:0,x2:1,y2:0,stop:0 #00aeef,stop:.5 #ec008c,stop:1 #ffd400)}
-#card,.card{background:white;border:1px solid #e3e6ee;border-radius:14px}
+QFrame[kind="card"]{background:white;border:1px solid #e3e6ee;border-radius:14px}
+QFrame[kind="cardin"]{background:#f0faf6;border:1px solid #12805c;border-radius:14px}
+QFrame[kind="stat"]{background:#f3f4f8;border:0;border-radius:10px}
+QScrollArea{background:transparent;border:0}
 QPushButton{background:#232c4e;color:white;border:0;border-radius:9px;padding:9px 18px;font-weight:600}
 QPushButton:hover{background:#34407a}
-QPushButton.g{background:white;color:#555e7a;border:1px solid #d5d9e5;font-weight:normal}
-QPushButton.g:hover{background:#eef0f7}
-QPushButton.nav{background:white;color:#7a8299;border:1px solid #e3e6ee;padding:11px}
-QPushButton.nav:checked{background:#232c4e;color:white}
-#lock{background:rgba(255,255,255,.14);border:1px solid rgba(255,255,255,.3);color:white}
-QPushButton.in{background:#12805c;padding:13px;font-size:11pt} QPushButton.out{background:#c0392b;padding:13px;font-size:11pt}
-QLineEdit,QComboBox,QSpinBox{background:white;border:1px solid #d5d9e5;border-radius:9px;padding:8px;min-height:20px}
-QTableWidget{background:white;border:1px solid #e3e6ee;border-radius:10px;gridline-color:#eef0f5}
+QPushButton[kind="g"]{background:white;color:#555e7a;border:1px solid #d5d9e5;font-weight:normal}
+QPushButton[kind="g"]:hover{background:#eef0f7}
+QPushButton[kind="nav"]{background:white;color:#7a8299;border:1px solid #e3e6ee;padding:11px}
+QPushButton[kind="nav"]:checked{background:#232c4e;color:white}
+QPushButton[kind="in"]{background:#12805c;padding:12px;font-size:11pt}
+QPushButton[kind="in"]:hover{background:#0e6b4d}
+QPushButton[kind="out"]{background:#c0392b;padding:12px;font-size:11pt}
+QPushButton[kind="out"]:hover{background:#a52f23}
+QPushButton:disabled{background:#e3e6ee;color:#a3aabd;border:0}
+#lock{background:#3a4575;border:1px solid #5a669c;color:white}
+QLineEdit,QComboBox,QSpinBox{background:white;border:1px solid #d5d9e5;border-radius:9px;padding:8px;min-height:20px;selection-background-color:#232c4e}
+QTableWidget{background:white;alternate-background-color:#f7f8fb;border:1px solid #e3e6ee;border-radius:10px;gridline-color:#eef0f5;selection-background-color:#dfe4f5;selection-color:#1d2540}
 QHeaderView::section{background:#f3f4f8;color:#7a8299;border:0;padding:8px;font-weight:600}
-.stat{background:#f3f4f8;border-radius:10px}
+QMessageBox,QInputDialog{background:white}
 """
 def btn(text, cls='', cb=None):
-    b = QPushButton(text); b.setProperty('class', cls); b.setCursor(Qt.PointingHandCursor)
+    b = QPushButton(text); b.setProperty('kind', cls); b.setCursor(Qt.PointingHandCursor)
     if cb: b.clicked.connect(cb)
     return b
 def card():
-    f = QFrame(); f.setProperty('class', 'card'); return f
+    f = QFrame(); f.setProperty('kind', 'card'); return f
 
 class Logo(QWidget):
     def __init__(self): super().__init__(); self.setFixedSize(58, 36)
@@ -188,20 +195,22 @@ class Main(QMainWindow):
         self.cw = QWidget(); self.cw.setStyleSheet('background:transparent'); self.grid = QGridLayout(self.cw)
         self.grid.setSpacing(14); sc.setWidget(self.cw); l.addWidget(sc); return w
     def build_cards(self):
-        while self.grid.count(): self.grid.takeAt(0).widget().deleteLater()
+        while self.grid.count():
+            it = self.grid.takeAt(0)
+            if it.widget(): it.widget().deleteLater()
         if not S['emps']:
             self.grid.addWidget(QLabel('لا يوجد موظفون. أضفهم من تبويب «الموظفون».'), 0, 0)
         for i, e in enumerate(S['emps']):
-            o = open_session(e['id']); c = QFrame(); c.setProperty('class', 'card')
-            c.setStyleSheet(f"QFrame.card{{background:{'#f0faf6' if o else 'white'};border:1px solid {'#12805c' if o else '#e3e6ee'}}}")
-            cl = QVBoxLayout(c); cl.setContentsMargins(16, 18, 16, 16)
+            o = open_session(e['id']); c = QFrame(); c.setProperty('kind', 'cardin' if o else 'card')
+            cl = QVBoxLayout(c); cl.setContentsMargins(16, 18, 16, 16); cl.setSpacing(8)
             av = QLabel(e['name'][:1]); av.setFixedSize(54, 54); av.setAlignment(Qt.AlignCenter)
-            av.setStyleSheet('background:#232c4e;color:white;border-radius:27px;font-size:18pt;font-weight:700')
+            av.setStyleSheet('background:#232c4e;color:white;border-radius:27px;font-size:18pt;font-weight:700;border:0')
             nm = QLabel(e['name']); nm.setAlignment(Qt.AlignCenter); nm.setStyleSheet('font-size:12pt;font-weight:700;border:0;background:transparent')
             st = QLabel(f'حاضر منذ {tm(o["i"])}' if o else 'لم يسجّل حضوراً'); st.setAlignment(Qt.AlignCenter)
-            st.setStyleSheet(f"color:{'#12805c' if o else '#7a8299'};border:0;background:transparent")
+            st.setStyleSheet(f"color:{'#12805c' if o else '#7a8299'};border:0;background:transparent;font-weight:600")
             cl.addWidget(av, 0, Qt.AlignCenter); cl.addWidget(nm); cl.addWidget(st)
-            cl.addWidget(btn('تسجيل انصراف' if o else 'تسجيل حضور', 'out' if o else 'in', lambda _=0, x=e['id']: self.toggle(x)))
+            row = QHBoxLayout(); bi = btn('✔ حضور', 'in', lambda _=0, x=e['id']: self.toggle(x)); bo = btn('⏏ انصراف', 'out', lambda _=0, x=e['id']: self.toggle(x))
+            bi.setEnabled(not o); bo.setEnabled(bool(o)); row.addWidget(bi); row.addWidget(bo); cl.addLayout(row)
             self.grid.addWidget(c, i // 3, i % 3)
         self.grid.setRowStretch(self.grid.rowCount(), 1)
     def toggle(self, eid):
@@ -224,7 +233,7 @@ class Main(QMainWindow):
         self.tb.setEditTriggers(QAbstractItemView.NoEditTriggers); self.tb.setAlternatingRowColors(True); l.addWidget(self.tb, 1)
         sr = QHBoxLayout(); self.sv = []
         for t in ['إجمالي الساعات', 'الإضافي', 'التأخير', 'الراتب', 'المستحق']:
-            f = QFrame(); f.setProperty('class', 'stat'); fl = QVBoxLayout(f)
+            f = QFrame(); f.setProperty('kind', 'stat'); fl = QVBoxLayout(f)
             a = QLabel(t); a.setAlignment(Qt.AlignCenter); a.setStyleSheet('color:#7a8299;font-size:9pt')
             b = QLabel('—'); b.setAlignment(Qt.AlignCenter); b.setStyleSheet('font-size:14pt;font-weight:700')
             fl.addWidget(a); fl.addWidget(b); sr.addWidget(f); self.sv.append(b)
@@ -333,5 +342,13 @@ class Main(QMainWindow):
 
 if __name__ == '__main__':
     load(); app = QApplication(sys.argv); app.setLayoutDirection(Qt.RightToLeft)
-    app.setFont(QFont('Segoe UI', 10)); app.setStyleSheet(QSS)
+    app.setStyle('Fusion')
+    try: app.styleHints().setColorScheme(Qt.ColorScheme.Light)
+    except Exception: pass
+    p = QPalette()
+    for r, c in [(QPalette.Window, '#f3f4f8'), (QPalette.WindowText, '#1d2540'), (QPalette.Base, '#ffffff'), (QPalette.AlternateBase, '#f7f8fb'),
+                 (QPalette.Text, '#1d2540'), (QPalette.Button, '#ffffff'), (QPalette.ButtonText, '#1d2540'), (QPalette.Highlight, '#232c4e'),
+                 (QPalette.HighlightedText, '#ffffff'), (QPalette.ToolTipBase, '#ffffff'), (QPalette.ToolTipText, '#1d2540')]:
+        p.setColor(r, QColor(c))
+    app.setPalette(p); app.setFont(QFont('Segoe UI', 10)); app.setStyleSheet(QSS)
     w = Main(); w.show(); sys.exit(app.exec())
